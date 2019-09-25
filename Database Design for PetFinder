@@ -1,0 +1,79 @@
+
+CREATE DATABASE IF NOT EXISTS petfinder;
+USE petfinder;
+CREATE TABLE Pet(
+PetID int not null auto_increment primary key,
+firstname text,
+Gender varchar(355)not null,
+weights decimal,
+Price decimal,
+CategoriesID int not null,
+FOREIGN KEY Pet(CategoriesID)
+REFERENCES categories(CategoriesID)
+ON UPDATE CASCADE
+ON DELETE RESTRICT
+)ENGINE=InnoDB;
+
+CREATE TABLE categories(
+CategoriesID int not null auto_increment primary key,
+cat_name varchar(255)not null,
+cat_description text
+)ENGINE=InnoDB;
+
+CREATE TABLE PetDetails(
+PetID int not null auto_increment primary key,
+Gender varchar(355)not null,
+weights decimal,
+SpayedOrNuetened text,
+ColorID int not null,
+LocationID int not null,
+PhotoID int not null,
+FOREIGN KEY PetDetails(ColorID)
+REFERENCES Colors(ColorID),
+FOREIGN KEY PetDestials(LocationID)
+REFERENCES PetLocation(LocationID),
+FOREIGN KEY PetDetails(PetID)
+REFERENCES Photo(PetID)
+ON UPDATE CASCADE
+ON DELETE RESTRICT
+)ENGINE=InnoDB;
+
+CREATE TABLE Colors(
+ColorID int not null auto_increment primary key,
+color_name varchar(255)not null
+)ENGINE=InnoDB;
+
+CREATE TABLE Vaccinations(
+VaccinationID int not null auto_increment primary key,
+Vaccination_Details varchar(255)not null
+)ENGINE=InnoDB;
+
+CREATE TABLE PetLocation(
+LocationID int not null auto_increment primary key,
+city varchar(255)not null,
+state varchar(255)not null,
+zipcode int not null
+)ENGINE=InnoDB;
+
+CREATE TABLE Vacc_Pet(
+PriPetID int not null auto_increment primary key,
+PetID int not null,
+VaccinationID int not null,
+FOREIGN KEY Vacc_Pet(VaccinationID)
+REFERENCES Vaccinations(VaccinationID)
+ON UPDATE CASCADE
+ON DELETE RESTRICT
+)ENGINE=InnoDB;
+
+CREATE TABLE Photo(
+PhotoID int not null auto_increment primary key,
+PetID int not null,
+PhotoFileName text,
+FOREIGN KEY Photo(PetID)
+REFERENCES PetDetails(PetID)
+ON UPDATE CASCADE
+ON DELETE RESTRICT
+)ENGINE=InnoDB;
+
+ALTER TABLE Vacc_pet
+Add FOREIGN KEY (PetID) REFERENCES Pet(PetID);
