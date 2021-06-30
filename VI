@@ -1,0 +1,184 @@
+USE [DataMonitoring]
+GO
+/****** Object:  StoredProcedure [dbo].[Laminator_Down_Alert]    Script Date: 6/30/2021 9:20:56 PM ******/
+SET ANSI_NULLS ON
+GO
+SET QUOTED_IDENTIFIER ON
+GO
+-- =============================================
+-- Author:		Marcus Huang
+-- Create date: 09/11/2020
+-- Description:	Laminator_Down_Alert
+-- =============================================
+ALTER PROCEDURE [dbo].[Laminator_Down_Alert]
+AS
+BEGIN
+Declare
+    @date date, 
+    @shift nvarchar(40),
+	@DT_event_time varchar(8),
+	@details nvarchar(100),
+	@reason_desc nvarchar(40),
+	@category nvarchar(40),
+	@reason_category nvarchar(40),
+	@body nvarchar(max);
+
+
+
+Declare cursor_lam Cursor
+For select  p.date,p.shift,p.DT_event_time,p.details,p.reason_desc,p.category,p.reason_category
+from
+(select t.*,count(1) over (partition by t.run_signal) as occurs 
+from
+(select s.*,s.stop_col+s.stop_signal as run_signal
+from 
+(select g.number as stop_col, stop_signal = case  g.reason_desc when N'运行' then 0 else 1 end, g.date,g.shift,g.DT_event_time,g.Shift_Time,g.details,g.reason_desc,g.category,g.reason_category
+from
+(select 
+number = ROW_NUMBER() over(order by u.log_id),
+--and category4 is not null 
+log_id,date = CONVERT(DATE, shift_start_local), 
+shift = case shift_id when 1 then N'夜'
+			  when 3 then N'早'
+			  when 5 then N'中'
+			  end,
+CONVERT(varchar, event_time_local,8) as DT_event_time,
+CONVERT(varchar,dateadd(minute,5,CONVERT(Time, event_time_local)),8) as Shift_Time,
+comments as details, 
+category2 as reason_desc,
+category3 as category, 
+category4 as reason_category
+from MESDB_ARCH.dbo.util_log as u  with (nolock)
+where ent_id = 170 AND category3 IN ('Unplanned','Runtime') 
+and category2 <> N'结束订单中' and duration>300 
+) as g
+) as s
+) as t 
+) as p
+
+where CONVERT(DATE, p.date)>= CAST(GETDATE() AS DATE) 
+and CONVERT(Time, p.DT_event_time) between dateadd(minute,-10,CONVERT(Time, Getdate())) and dateadd(minute,-5,CONVERT(Time, Getdate()))
+and occurs >1 or ((CONVERT(DATE, p.date)>= CAST(GETDATE() AS DATE) 
+and(CONVERT(Time, p.DT_event_time) between dateadd(minute,-10,CONVERT(Time, Getdate())) and dateadd(minute,-5,CONVERT(Time, Getdate()))) and stop_signal = 1))
+
+
+Open Cursor_lam;
+
+Fetch Next from cursor_lam Into
+    @date, 
+    @shift,
+	@DT_event_time,
+	@details,
+	@reason_desc,
+	@category,
+	@reason_category;
+
+While @@FETCH_STATUS = 0
+
+	Begin 
+	set @body = concat(@body,CHAR(10),CHAR(13),N' 日期: ',@date,CHAR(10),CHAR(13),N' 班次: ',cast(@shift as nvarchar(40)),CHAR(10),CHAR(13),
+	N' 发生时间: ',@DT_event_time,CHAR(10),CHAR(13),N' 注释: ',@details,CHAR(10),CHAR(13),N' 事件描述: ',@reason_desc,CHAR(10),CHAR(13),
+	N' 类别归属: ',@reason_category,'_',CHAR(10),CHAR(13))+CHAR(13)
+	Fetch Next From Cursor_lam Into
+	@date, 
+    @shift,
+	@DT_event_time,
+	@details,
+	@reason_desc,
+	@category,
+	@reason_category;
+    End;
+
+
+Close Cursor_lam;
+Deallocate Cursor_lam;
+
+declare @text nvarchar(max);
+set @text = @body
+
+If datalength(@body)!=0 
+exec msdb.dbo.sp_send_dbmail
+@profile_name = 'HPSQLAdmins',   --配置名称
+@recipients = 'marcus_huang@colpal.com;petter_lin@colpal.com;qingsong_xia@colpal.com;xing_xin@colpal.com;grace_liang@colpal.com;klee_wang@colpal.com',    --收件名称
+@body_format = 'TEXT',                      --内容格式
+@subject = 'Laminator Status Update',
+@body = @text
+
+Declare
+    @date2 date, 
+	@crew_id nvarchar(40),
+    @shift2 nvarchar(40),
+	@DT_event_time2 varchar(8),
+	@details2 nvarchar(100),
+	@duration nvarchar(40),
+	@reason_desc2 nvarchar(40),
+	@category2 nvarchar(40),
+	@reason_category2 nvarchar(40),
+	@body2 nvarchar(max);
+
+
+
+Declare cursor_lam_dur Cursor
+For 
+select 
+CONVERT(DATE, u.shift_start_local) as date2, oc.Crew_Id,
+shift2 = case u.shift_id when 1 then N'夜'
+			  when 3 then N'早'
+			  when 5 then N'中'
+			  end,
+CONVERT(varchar, u.event_time_local,8) as DT_event_time2,
+u.comments as details2, 
+u.duration*1.0/60 as duration, 
+u.category2 as reason_desc2,
+u.category3 as category2, 
+u.category4 as reason_category2
+from MESDB_ARCH.dbo.util_log as u  with (nolock)
+join MESDB_ARCH.dbo.OPERA_Crew_Schedule as oc with (nolock) on oc.File_Date  = CONVERT(DATE, u.shift_start_local) and oc.Shift_Id = u.shift_id and oc.Focus_Factory_Id = 28
+where ent_id = 170 and u.category2 <>N'运行'and u.category2 <> N'结束订单中' and  u.category2<>N'转结构' and CONVERT(DATE, u.event_time_local)= CAST(GETDATE()-1 AS DATE)
+
+
+Open Cursor_lam_dur;
+
+Fetch Next from cursor_lam_dur Into
+    @date2, 
+	@crew_id,
+    @shift2,
+	@DT_event_time2,
+	@details2,
+	@duration,
+	@reason_desc2,
+	@category2,
+	@reason_category2;
+
+While @@FETCH_STATUS = 0
+
+	Begin 
+	set @body2 = concat(@body2, @date2,'?',@crew_id,'?',cast(@shift2 as nvarchar(40)),'?',@DT_event_time2,'?',@details2,'?',@duration,'?',@reason_desc2,'?',@category2,'?',
+	@reason_category2,'_',CHAR(10))
+	Fetch Next From Cursor_lam_dur Into
+	@date2, 
+	@crew_id,
+    @shift2,
+	@DT_event_time2,
+	@details2,
+	@duration,
+	@reason_desc2,
+	@category2,
+	@reason_category2;
+    End;
+
+
+Close Cursor_lam_dur;
+Deallocate Cursor_lam_dur;
+
+
+If datalength(@body2)!=0  and cast(getdate() as time) >= '00:04:00' 
+   and cast(getdate() as time) < '00:06:00'
+exec msdb.dbo.sp_send_dbmail
+@profile_name = 'HPSQLAdmins',   --配置名称
+@recipients = 'marcus_huang@colpal.com',    --收件名称
+@body_format = 'HTML',                      --内容格式
+@subject = 'Duration',
+@body = @body2
+
+END
